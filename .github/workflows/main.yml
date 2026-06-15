@@ -2,22 +2,16 @@ name: Build and Release YTMusicUltimate
 on:
   workflow_dispatch:
     inputs: 
-      ipa_url:
-        description: "URL to the decrypted IPA file (optional if IPA_URL secret is set)"
-        default: ""
-        required: false
-        type: string
-
       display_name:
         description: "App Name (Optional)"
         default: "YouTube Music"
-        required: true
+        required: false
         type: string
 
       bundle_id:
         description: "BundleID (Optional)"
         default: "com.google.ios.youtubemusic"
-        required: true
+        required: false
         type: string
 
 concurrency:
@@ -32,7 +26,9 @@ jobs:
     permissions:
       contents: write
     env:
-      IPA_URL: ${{ inputs.ipa_url || secrets.IPA_URL }}
+      IPA_URL: ${{ secrets.IPA_URL }}
+      DISPLAY_NAME: ${{ inputs.display_name || 'YouTube Music' }}
+      BUNDLE_ID: ${{ inputs.bundle_id || 'com.google.ios.youtubemusic' }}
 
     steps:
       - name: Checkout Main
@@ -47,12 +43,8 @@ jobs:
           exclude_inputs: bundle_id,display_name
 
       - name: Validate IPA URL
+        if: env.IPA_URL != ''
         run: |
-          if [[ -z "$IPA_URL" ]]; then
-            echo "::error::No IPA URL found. Enter a URL when running the workflow or add a repository secret named IPA_URL."
-            exit 1
-          fi
-
           curl --fail --location --retry 3 --retry-delay 5 --connect-timeout 30 \
             --range 0-2047 \
             --output sample.part \
@@ -103,9 +95,11 @@ jobs:
           mv *.sdk $THEOS/sdks
 
       - name: Install cyan
+        if: env.IPA_URL != ''
         run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
       - name: Download YouTube Music
+        if: env.IPA_URL != ''
         run: |
           curl --fail --location --retry 3 --retry-delay 5 --connect-timeout 30 \
             --output ytm.ipa \
@@ -120,9 +114,15 @@ jobs:
           mv packages/*.deb ../ytmult.deb
           test -s ../ytmult.deb
 
-      - name: Inject tweak into provided IPA
+      - name: Skip IPA injection
+        if: env.IPA_URL == ''
         run: |
-          cyan -i ytm.ipa -o YTMusicUltimate.ipa -uwsf ytmult.deb -n "${{ inputs.display_name }}" -b "${{ inputs.bundle_id }}"
+          echo "::notice::No bundled base IPA is configured, so this run built the tweak package only."
+
+      - name: Inject tweak into provided IPA
+        if: env.IPA_URL != ''
+        run: |
+          cyan -i ytm.ipa -o YTMusicUltimate.ipa -uwsf ytmult.deb -n "$DISPLAY_NAME" -b "$BUNDLE_ID"
           test -s YTMusicUltimate.ipa
           unzip -tq YTMusicUltimate.ipa
 
@@ -131,9 +131,11 @@ jobs:
         with:
           tag_name: ytmusicultimate-${{ github.run_number }}
           name: YTMusicUltimate (${{ github.run_number }})
-          files: YTMusicUltimate.ipa
+          files: |
+            ytmult.deb
+            YTMusicUltimate.ipa
           draft: true
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
 
       - name: Output Release URL
         run: |
