@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
     inputs: 
       ipa_url:
-        description: "URL to the decrypted IPA file"
+        description: "URL to the decrypted IPA file (optional if IPA_URL secret is set)"
         default: ""
-        required: true
+        required: false
         type: string
 
       display_name:
@@ -31,6 +31,8 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: write
+    env:
+      IPA_URL: ${{ inputs.ipa_url || secrets.IPA_URL }}
 
     steps:
       - name: Checkout Main
@@ -46,10 +48,15 @@ jobs:
 
       - name: Validate IPA URL
         run: |
+          if [[ -z "$IPA_URL" ]]; then
+            echo "::error::No IPA URL found. Enter a URL when running the workflow or add a repository secret named IPA_URL."
+            exit 1
+          fi
+
           curl --fail --location --retry 3 --retry-delay 5 --connect-timeout 30 \
             --range 0-2047 \
             --output sample.part \
-            "${{ inputs.ipa_url }}"
+            "$IPA_URL"
           
           file_type=$(file --mime-type -b sample.part)
 
@@ -102,7 +109,7 @@ jobs:
         run: |
           curl --fail --location --retry 3 --retry-delay 5 --connect-timeout 30 \
             --output ytm.ipa \
-            "${{ inputs.ipa_url }}"
+            "$IPA_URL"
           unzip -tq ytm.ipa
           unzip -Z1 ytm.ipa | grep -Eq '^Payload/[^/]+\.app/Info\.plist$'
 
